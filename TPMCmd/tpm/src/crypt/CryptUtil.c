@@ -934,10 +934,15 @@ CryptParameterDecryption(
     TPM2B_HMAC_KEY key;             // decryption key
     UINT16         cipherSize = 0;  // size of ciphertext
 
-    if(bufferSize < leadingSizeInByte)
-    {
-        return TPM_RC_INSUFFICIENT;
-    }
+// Reproducing Bug CVE-2023-1017 (OOB write) /1018 (OOB read)
+// 1. Commented out post-patch code that prevents processing buffers that are too small,
+//    which leads to OOB read if bufferSize < leadingSizeInByte
+/*
+        if(bufferSize < leadingSizeInByte)
+        {
+            return TPM_RC_INSUFFICIENT;
+        }
+*/
 
     // Parameter encryption for a non-2B is not supported.
     if(leadingSizeInByte != 2)
@@ -945,16 +950,28 @@ CryptParameterDecryption(
         FAIL_RC(FATAL_ERROR_INTERNAL);
     }
 
+// 2. Commented out post-patch code that properly extracts the UINT16 value from buffer
+//    only if bufferSize has at least 2 bytes, which prevents OOB read.
+/*
     // Retrieve encrypted data size.
     if(UINT16_Unmarshal(&cipherSize, &buffer, &bufferSize) != TPM_RC_SUCCESS)
     {
         return TPM_RC_INSUFFICIENT;
-    }
+    }*/
 
+    // Added vulnerable code that directly converts the first two bytes at buffer as a UINT16 value
+    // WITHOUT checking whether buffer has at least 2 bytes which could lead to OOB read
+    cipherSize = (UINT32)BYTE_ARRAY_TO_UINT16(buffer);
+    buffer = &buffer[2];
+
+// 3. Commented out post-patch code that checked that cipherSize did not exceed bufferSize which
+//    would prevent OOB writes.
+/*
     if(cipherSize > bufferSize)
     {
         return TPM_RC_SIZE;
     }
+*/
 
     // Compute decryption key by concatenating sessionAuth with extra input key
     MemoryCopy2B(&key.b, &session->sessionKey.b, sizeof(key.t.buffer));
